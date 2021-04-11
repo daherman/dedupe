@@ -9,7 +9,7 @@ import dedupe.variables.base as base
 from dedupe.variables.base import MissingDataType
 from dedupe.variables.interaction import InteractionType
 
-for _, module, _ in pkgutil.iter_modules(dedupe.variables.__path__,
+for _, module, _ in pkgutil.iter_modules(dedupe.variables.__path__,  # type: ignore
                                          'dedupe.variables.'):
     __import__(module)
 
@@ -21,6 +21,8 @@ class DataModel(object):
 
     def __init__(self, fields):
 
+        if not fields:
+            raise ValueError('The field definitions cannot be empty')
         primary_fields, variables = typifyFields(fields)
         self.primary_fields = primary_fields
         self._derived_start = len(variables)
@@ -124,6 +126,7 @@ class DataModel(object):
 def typifyFields(fields):
     primary_fields = []
     data_model = []
+    only_custom = True
 
     for definition in fields:
         try:
@@ -138,6 +141,9 @@ def typifyFields(fields):
                            "specifications are dictionaries that must "
                            "include a type definition, ex. "
                            "{'field' : 'Phone', type: 'String'}")
+
+        if field_type != 'Custom':
+            only_custom = False
 
         if field_type == 'Interaction':
             continue
@@ -160,6 +166,11 @@ def typifyFields(fields):
             data_model.extend(field_object.higher_vars)
         else:
             data_model.append(field_object)
+
+    if only_custom:
+        raise ValueError("At least one of the field types needs to be a type"
+                         "other than 'Custom'. 'Custom' types have no associated"
+                         "blocking rules")
 
     return primary_fields, data_model
 

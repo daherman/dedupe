@@ -1,38 +1,35 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
-from builtins import str, super
 
 import re
 import math
 import itertools
 import string
-import sys
+import abc
 
 from doublemetaphone import doublemetaphone
 from dedupe.cpredicates import ngrams, initials
 import dedupe.tfidf as tfidf
 import dedupe.levenshtein as levenshtein
 
+from typing import Sequence, Callable, Any, Tuple, Set
+from dedupe._typing import RecordDict
+
 words = re.compile(r"[\w']+").findall
 integers = re.compile(r"\d+").findall
 start_word = re.compile(r"^([\w']+)").match
+two_start_words = re.compile(r"^([\w']+\s+[\w']+)").match
 start_integer = re.compile(r"^(\d+)").match
-alpha_numeric = re.compile(r"(?=.*\d)[a-zA-Z\d]+").findall
+alpha_numeric = re.compile(r"(?=\w*\d)[a-zA-Z\d]+").findall
 
-if sys.version < '3':
-    PUNCTUATION = string.punctuation
-
-    def strip_punc(s):
-        s = s.encode('utf-8').translate(None, PUNCTUATION)
-        return s.decode('utf-8')
-else:
-    PUNCTABLE = str.maketrans("", "", string.punctuation)
-
-    def strip_punc(s):
-        return s.translate(PUNCTABLE)
+PUNCTABLE = str.maketrans("", "", string.punctuation)
 
 
-class Predicate(object):
+def strip_punc(s):
+    return s.translate(PUNCTABLE)
+
+
+class Predicate(abc.ABC):
     def __iter__(self):
         yield self
 
@@ -52,16 +49,29 @@ class Predicate(object):
     def __len__(self):
         return 1
 
+    @abc.abstractmethod
+    def __call__(self, record, **kwargs) -> tuple:
+        pass
+
+    def __add__(self, other: 'Predicate') -> 'CompoundPredicate':
+
+        if isinstance(other, CompoundPredicate):
+            return CompoundPredicate((self,) + tuple(other))
+        elif isinstance(other, Predicate):
+            return CompoundPredicate((self, other))
+        else:
+            raise ValueError('Can only combine predicates')
+
 
 class SimplePredicate(Predicate):
     type = "SimplePredicate"
 
-    def __init__(self, func, field):
+    def __init__(self, func: Callable[[Any], Tuple[str, ...]], field: str):
         self.func = func
         self.__name__ = "(%s, %s)" % (func.__name__, field)
         self.field = field
 
-    def __call__(self, record, **kwargs):
+    def __call__(self, record: RecordDict, **kwargs) -> Tuple[str, ...]:
         column = record[self.field]
         if column:
             return self.func(column)
@@ -70,7 +80,7 @@ class SimplePredicate(Predicate):
 
 
 class StringPredicate(SimplePredicate):
-    def __call__(self, record, **kwargs):
+    def __call__(self, record: RecordDict, **kwargs):
         column = record[self.field]
         if column:
             return self.func(" ".join(strip_punc(column).split()))
@@ -115,6 +125,12 @@ class IndexPredicate(Predicate):
         # backwards compatibility
         if not hasattr(self, 'index'):
             self.index = None
+
+    def reset(self):
+        ...
+
+    def bust_cache(self):
+        self._cache = {}
 
 
 class CanopyPredicate(object):
@@ -286,22 +302,42 @@ class LevenshteinSearchPredicate(SearchPredicate, LevenshteinPredicate):
     type = "LevenshteinSearchPredicate"
 
 
-class CompoundPredicate(tuple):
+class CompoundPredicate(tuple, Predicate):
     type = "CompoundPredicate"
 
-    @property
-    def __name__(self):
-        return u'(%s)' % u', '.join(str(pred) for pred in self)
+    def __hash__(self):
+        try:
+            return self._cached_hash
+        except AttributeError:
+            h = self._cached_hash = hash(frozenset(self))
+            return h
+
+    def __eq__(self, other):
+        return frozenset(self) == frozenset(other)
 
     def __call__(self, record, **kwargs):
         predicate_keys = [predicate(record, **kwargs)
                           for predicate in self]
-        return [u':'.join(block_key)
-                for block_key
-                in itertools.product(*predicate_keys)]
+        return [
+            u':'.join(
+                # must escape : to avoid confusion with : join separator
+                b.replace(u':', u'\\:') for b in block_key
+            )
+            for block_key
+            in itertools.product(*predicate_keys)
+        ]
+
+    def __add__(self, other: Predicate) -> 'CompoundPredicate':  # type: ignore
+
+        if isinstance(other, CompoundPredicate):
+            return CompoundPredicate(tuple(self) + tuple(other))
+        elif isinstance(other, Predicate):
+            return CompoundPredicate(tuple(self) + (other,))
+        else:
+            raise ValueError('Can only combine predicates')
 
 
-def wholeFieldPredicate(field):
+def wholeFieldPredicate(field: Any) -> Tuple[str]:
     """return the whole field"""
     return (str(field), )
 
@@ -311,7 +347,7 @@ def tokenFieldPredicate(field):
     return set(words(field))
 
 
-def firstTokenPredicate(field):
+def firstTokenPredicate(field: str) -> Sequence[str]:
     first_token = start_word(field)
     if first_token:
         return first_token.groups()
@@ -319,16 +355,24 @@ def firstTokenPredicate(field):
         return ()
 
 
-def commonIntegerPredicate(field):
+def firstTwoTokensPredicate(field: str) -> Sequence[str]:
+    first_two_tokens = two_start_words(field)
+    if first_two_tokens:
+        return first_two_tokens.groups()
+    else:
+        return ()
+
+
+def commonIntegerPredicate(field: str) -> Set[str]:
     """return any integers"""
     return {str(int(i)) for i in integers(field)}
 
 
-def alphaNumericPredicate(field):
+def alphaNumericPredicate(field: str) -> Set[str]:
     return set(alpha_numeric(field))
 
 
-def nearIntegersPredicate(field):
+def nearIntegersPredicate(field: str) -> Set[str]:
     """return any integers N, N+1, and N-1"""
     ints = integers(field)
     near_ints = set()
@@ -341,15 +385,15 @@ def nearIntegersPredicate(field):
     return near_ints
 
 
-def hundredIntegerPredicate(field):
+def hundredIntegerPredicate(field: str) -> Set[str]:
     return {str(int(i))[:-2] + '00' for i in integers(field)}
 
 
-def hundredIntegersOddPredicate(field):
+def hundredIntegersOddPredicate(field: str) -> Set[str]:
     return {str(int(i))[:-2] + '0' + str(int(i) % 2) for i in integers(field)}
 
 
-def firstIntegerPredicate(field):
+def firstIntegerPredicate(field: str) -> Sequence[str]:
     first_token = start_integer(field)
     if first_token:
         return first_token.groups()
@@ -357,7 +401,7 @@ def firstIntegerPredicate(field):
         return ()
 
 
-def ngramsTokens(field, n):
+def ngramsTokens(field: Sequence[Any], n: int) -> Set[str]:
     grams = set()
     n_tokens = len(field)
     for i in range(n_tokens):
@@ -366,23 +410,23 @@ def ngramsTokens(field, n):
     return grams
 
 
-def commonTwoTokens(field):
+def commonTwoTokens(field: str) -> Set[str]:
     return ngramsTokens(field.split(), 2)
 
 
-def commonThreeTokens(field):
+def commonThreeTokens(field: str) -> Set[str]:
     return ngramsTokens(field.split(), 3)
 
 
-def fingerprint(field):
+def fingerprint(field: str) -> Tuple[str]:
     return (u''.join(sorted(field.split())).strip(),)
 
 
-def oneGramFingerprint(field):
+def oneGramFingerprint(field: str) -> Tuple[str]:
     return (u''.join(sorted(set(ngrams(field.replace(' ', ''), 1)))).strip(),)
 
 
-def twoGramFingerprint(field):
+def twoGramFingerprint(field: str) -> Tuple[str, ...]:
     if len(field) > 1:
         return (u''.join(sorted(gram.strip() for gram
                                 in set(ngrams(field.replace(' ', ''), 2)))),)
@@ -390,40 +434,39 @@ def twoGramFingerprint(field):
         return ()
 
 
-def commonFourGram(field):
+def commonFourGram(field: str) -> Set[str]:
     """return 4-grams"""
     return set(ngrams(field.replace(' ', ''), 4))
 
 
-def commonSixGram(field):
+def commonSixGram(field: str) -> Set[str]:
     """return 6-grams"""
     return set(ngrams(field.replace(' ', ''), 6))
 
 
-def sameThreeCharStartPredicate(field):
+def sameThreeCharStartPredicate(field: str) -> Tuple[str]:
     """return first three characters"""
     return initials(field.replace(' ', ''), 3)
 
 
-def sameFiveCharStartPredicate(field):
+def sameFiveCharStartPredicate(field: str) -> Tuple[str]:
     """return first five characters"""
     return initials(field.replace(' ', ''), 5)
 
 
-def sameSevenCharStartPredicate(field):
+def sameSevenCharStartPredicate(field: str) -> Tuple[str]:
     """return first seven characters"""
     return initials(field.replace(' ', ''), 7)
 
 
 def suffixArray(field):
-    field = field.replace(' ', '')
     n = len(field) - 4
     if n > 0:
         for i in range(0, n):
             yield field[i:]
 
 
-def sortedAcronym(field):
+def sortedAcronym(field: str) -> Tuple[str]:
     return (''.join(sorted(each[0] for each in field.split())),)
 
 
@@ -436,19 +479,6 @@ def metaphoneToken(field):
             in itertools.chain(*(doublemetaphone(token)
                                  for token in set(field.split())))
             if metaphone_token}
-
-
-def existsPredicate(field):
-    try:
-        if any(field):
-            return (u'1',)
-        else:
-            return (u'0',)
-    except TypeError:
-        if field:
-            return (u'1',)
-        else:
-            return (u'0',)
 
 
 def wholeSetPredicate(field_set):

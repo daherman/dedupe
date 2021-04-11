@@ -1,43 +1,48 @@
-from __future__ import division
-from future.utils import with_metaclass
-from builtins import super
-
 import random
-from abc import ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 import logging
 
 import numpy
 import rlr
+from typing import List
+from typing_extensions import Protocol
 
 import dedupe.sampling as sampling
 import dedupe.core as core
 import dedupe.training as training
+import dedupe.datamodel as datamodel
+from dedupe._typing import TrainingExample
 
 logger = logging.getLogger(__name__)
 
 
-class ActiveLearner(with_metaclass(ABCMeta)):
+class ActiveLearner(ABC):
 
     @abstractmethod
-    def transform():
+    def transform(self) -> None:
         pass
 
     @abstractmethod
-    def pop():
+    def pop(self) -> TrainingExample:
         pass
 
     @abstractmethod
-    def mark():
+    def mark(self) -> None:
         pass
 
     @abstractmethod
-    def __len__(self):
+    def __len__(self) -> int:
         pass
+
+
+class HasDataModel(Protocol):
+
+    data_model: datamodel.DataModel
 
 
 class DedupeSampler(object):
 
-    def sample(self, data, blocked_proportion, sample_size):
+    def _sample(self: HasDataModel, data, blocked_proportion, sample_size) -> List[TrainingExample]:
         blocked_sample_size = int(blocked_proportion * sample_size)
         predicates = list(self.data_model.predicates(index_predicates=False))
 
@@ -58,7 +63,7 @@ class DedupeSampler(object):
 
 class RecordLinkSampler(object):
 
-    def sample(self, data_1, data_2, blocked_proportion, sample_size):
+    def _sample(self: HasDataModel, data_1, data_2, blocked_proportion, sample_size) -> List[TrainingExample]:
         offset = len(data_1)
 
         blocked_sample_size = int(blocked_proportion * sample_size)
@@ -77,28 +82,31 @@ class RecordLinkSampler(object):
                                                    len(deque_2),
                                                    random_sample_size)
 
-        random_sample_keys = {(a, b + offset)
-                              for a, b in random_sample_keys}
+        unique_random_sample_keys = {(a, b + offset)
+                                     for a, b in random_sample_keys}
 
         return [(data_1[k1], data_2[k2])
                 for k1, k2
-                in blocked_sample_keys | random_sample_keys]
+                in blocked_sample_keys | unique_random_sample_keys]
 
 
 class RLRLearner(ActiveLearner, rlr.RegularizedLogisticRegression):
-    def __init__(self, data_model, *args, **kwargs):
+    def __init__(self, data_model):
         super().__init__(alpha=1)
-
         self.data_model = data_model
+        self._candidates: List[TrainingExample]
 
-        if 'candidates' not in kwargs:
-            self.candidates = super().sample(*args)
-        else:
-            self.candidates = kwargs.pop('candidates')
+    @property
+    def candidates(self) -> List[TrainingExample]:
+        return self._candidates
 
-        self.distances = self.transform(self.candidates)
+    @candidates.setter
+    def candidates(self, new_candidates):
+        self._candidates = new_candidates
 
-        random_pair = random.choice(self.candidates)
+        self.distances = self.transform(self._candidates)
+
+        random_pair = random.choice(self._candidates)
         exact_match = (random_pair[0], random_pair[0])
         self.fit_transform([exact_match, random_pair],
                            [1, 0])
@@ -107,6 +115,7 @@ class RLRLearner(ActiveLearner, rlr.RegularizedLogisticRegression):
         return self.data_model.distances(pairs)
 
     def fit(self, X, y):
+
         self.y = numpy.array(y)
         self.X = X
 
@@ -115,7 +124,7 @@ class RLRLearner(ActiveLearner, rlr.RegularizedLogisticRegression):
     def fit_transform(self, pairs, y):
         self.fit(self.transform(pairs), y)
 
-    def pop(self):
+    def pop(self) -> TrainingExample:
         if not len(self.candidates):
             raise IndexError("No more unlabeled examples to label")
 
@@ -130,7 +139,7 @@ class RLRLearner(ActiveLearner, rlr.RegularizedLogisticRegression):
 
         uncertain_pair = self.candidates.pop(uncertain_index)
 
-        return [uncertain_pair]
+        return uncertain_pair
 
     def _remove(self, index):
         self.distances = numpy.delete(self.distances, index, axis=0)
@@ -168,12 +177,16 @@ class RLRLearner(ActiveLearner, rlr.RegularizedLogisticRegression):
         return len(self.candidates)
 
 
-class DedupeRLRLearner(RLRLearner, DedupeSampler):
-    pass
+class DedupeRLRLearner(DedupeSampler, RLRLearner):
+    def __init__(self, data_model, data, blocked_proportion, sample_size):
+        super().__init__(data_model)
+        self.candidates = self._sample(data, blocked_proportion, sample_size)
 
 
-class RecordLinkRLRLearner(RLRLearner, RecordLinkSampler):
-    pass
+class RecordLinkRLRLearner(RecordLinkSampler, RLRLearner):
+    def __init__(self, data_model, data_1, data_2, blocked_proportion, sample_size):
+        super.__init__(data_model)
+        self.candidates = self._sample(data_1, data_2, blocked_proportion, sample_size)
 
 
 class BlockLearner(object):
@@ -186,6 +199,8 @@ class BlockLearner(object):
 
         self._cached_labels = None
         self._old_dupes = []
+
+        self.block_learner: training.BlockLearner
 
     def fit_transform(self, pairs, y):
         dupes = [pair for label, pair in zip(y, pairs) if label]
@@ -211,9 +226,9 @@ class BlockLearner(object):
         for record_1, record_2 in candidates:
 
             for predicate in self.current_predicates:
-                keys = predicate(record_1)
+                keys = predicate(record_2, target=True)
                 if keys:
-                    if set(predicate(record_2, target=True)) & set(keys):
+                    if set(predicate(record_1)) & set(keys):
                         labels.append(1)
                         break
             else:
@@ -230,24 +245,32 @@ class BlockLearner(object):
 
 class DedupeBlockLearner(BlockLearner):
 
-    def __init__(self, data_model, candidates, data, original_length):
+    def __init__(self, data_model,
+                 candidates,
+                 data,
+                 original_length,
+                 index_include):
         super().__init__(data_model, candidates)
 
         index_data = Sample(data, 50000, original_length)
-        sampled_records = Sample(index_data, 2000, original_length)
+        sampled_records = Sample(index_data, 5000, original_length)
         preds = self.data_model.predicates()
 
         self.block_learner = training.DedupeBlockLearner(preds,
                                                          sampled_records,
                                                          index_data)
 
-        self._index_predicates(self.candidates)
+        examples_to_index = candidates.copy()
+        if index_include:
+            examples_to_index += index_include
+
+        self._index_predicates(examples_to_index)
 
     def _index_predicates(self, candidates):
 
         blocker = self.block_learner.blocker
 
-        records = unique((record for pair in candidates for record in pair))
+        records = core.unique((record for pair in candidates for record in pair))
 
         for field in blocker.index_fields:
             unique_fields = {record[field] for record in records}
@@ -265,7 +288,8 @@ class RecordLinkBlockLearner(BlockLearner):
                  data_1,
                  data_2,
                  original_length_1,
-                 original_length_2):
+                 original_length_2,
+                 index_include):
 
         super().__init__(data_model, candidates)
 
@@ -280,15 +304,19 @@ class RecordLinkBlockLearner(BlockLearner):
                                                              sampled_records_2,
                                                              index_data)
 
-        self._index_predicates(self.candidates)
+        examples_to_index = candidates.copy()
+        if index_include:
+            examples_to_index += index_include
+
+        self._index_predicates(examples_to_index)
 
     def _index_predicates(self, candidates):
 
         blocker = self.block_learner.blocker
 
         A, B = zip(*candidates)
-        A = unique(A)
-        B = unique(B)
+        A = core.unique(A)
+        B = core.unique(B)
 
         for field in blocker.index_fields:
             unique_fields = {record[field] for record in B}
@@ -300,31 +328,34 @@ class RecordLinkBlockLearner(BlockLearner):
 
 class DisagreementLearner(ActiveLearner):
 
+    classifier: RLRLearner
+    blocker: BlockLearner
+    candidates: List[TrainingExample]
+
     def _common_init(self):
 
-        self.classifier = RLRLearner(self.data_model,
-                                     candidates=self.candidates)
         self.learners = (self.classifier, self.blocker)
         self.y = numpy.array([])
         self.pairs = []
 
-    def pop(self):
+    def pop(self) -> TrainingExample:
         if not len(self.candidates):
             raise IndexError("No more unlabeled examples to label")
 
-        probs = []
+        probs_l = []
         for learner in self.learners:
             probabilities = learner.candidate_scores()
-            probs.append(probabilities)
+            probs_l.append(probabilities)
 
-        probs = numpy.concatenate(probs, axis=1)
+        probs = numpy.concatenate(probs_l, axis=1)
 
         # where do the classifers disagree?
         disagreement = numpy.std(probs > 0.5, axis=1).astype(bool)
 
         if disagreement.any():
-            conflicts = disagreement.nonzero()[0]
-            uncertain_index = numpy.random.choice(conflicts, 1)[0]
+            conflicts = disagreement.nonzero()[0]  # type: ignore
+            target = numpy.random.uniform(size=1)
+            uncertain_index = conflicts[numpy.argmax(probs[conflicts][:, 0] - target)]
         else:
             uncertain_index = numpy.std(probs, axis=1).argmax()
 
@@ -337,7 +368,7 @@ class DisagreementLearner(ActiveLearner):
         for learner in self.learners:
             learner._remove(uncertain_index)
 
-        return [uncertain_pair]
+        return uncertain_pair
 
     def mark(self, pairs, y):
 
@@ -364,41 +395,56 @@ class DisagreementLearner(ActiveLearner):
             self.blocker.block_learner.blocker.predicates = no_index_predicates
 
             learned_preds = self.blocker.block_learner.learn(dupes,
-                                                             recall=recall)
+                                                             recall=recall,
+                                                             candidate_types='random forest')
 
             self.blocker.block_learner.blocker.predicates = old_preds
 
         else:
             learned_preds = self.blocker.block_learner.learn(dupes,
-                                                             recall=recall)
+                                                             recall=recall,
+                                                             candidate_types='random forest')
 
         return learned_preds
 
 
-class DedupeDisagreementLearner(DisagreementLearner, DedupeSampler):
+class DedupeDisagreementLearner(DedupeSampler, DisagreementLearner):
 
     def __init__(self,
                  data_model,
                  data,
                  blocked_proportion,
                  sample_size,
-                 original_length):
+                 original_length,
+                 index_include):
 
         self.data_model = data_model
 
         data = core.index(data)
 
-        self.candidates = super().sample(data, blocked_proportion, sample_size)
+        self.candidates = self._sample(data, blocked_proportion, sample_size)
+
+        random_pair = random.choice(self.candidates)
+        exact_match = (random_pair[0], random_pair[0])
+
+        index_include = index_include.copy()
+        index_include.append(exact_match)
 
         self.blocker = DedupeBlockLearner(data_model,
                                           self.candidates,
                                           data,
-                                          original_length)
+                                          original_length,
+                                          index_include)
+        self.classifier = RLRLearner(self.data_model)
+        self.classifier.candidates = self.candidates
 
         self._common_init()
 
+        self.mark([exact_match] * 4 + [random_pair],
+                  [1] * 4 + [0])
 
-class RecordLinkDisagreementLearner(DisagreementLearner, RecordLinkSampler):
+
+class RecordLinkDisagreementLearner(RecordLinkSampler, DisagreementLearner):
 
     def __init__(self,
                  data_model,
@@ -407,7 +453,8 @@ class RecordLinkDisagreementLearner(DisagreementLearner, RecordLinkSampler):
                  blocked_proportion,
                  sample_size,
                  original_length_1,
-                 original_length_2):
+                 original_length_2,
+                 index_include):
 
         self.data_model = data_model
 
@@ -416,19 +463,31 @@ class RecordLinkDisagreementLearner(DisagreementLearner, RecordLinkSampler):
         offset = len(data_1)
         data_2 = core.index(data_2, offset)
 
-        self.candidates = super().sample(data_1,
-                                         data_2,
-                                         blocked_proportion,
-                                         sample_size)
+        self.candidates = self._sample(data_1,
+                                       data_2,
+                                       blocked_proportion,
+                                       sample_size)
+
+        random_pair = random.choice(self.candidates)
+        exact_match = (random_pair[0], random_pair[0])
+
+        index_include = index_include.copy()
+        index_include.append(exact_match)
 
         self.blocker = RecordLinkBlockLearner(data_model,
                                               self.candidates,
                                               data_1,
                                               data_2,
                                               original_length_1,
-                                              original_length_2)
+                                              original_length_2,
+                                              index_include)
+        self.classifier = RLRLearner(self.data_model)
+        self.classifier.candidates = self.candidates
 
         self._common_init()
+
+        self.mark([exact_match] * 4 + [random_pair],
+                  [1] * 4 + [0])
 
 
 class Sample(dict):
@@ -437,20 +496,9 @@ class Sample(dict):
         if len(d) <= sample_size:
             super().__init__(d)
         else:
-            _keys = tuple(d.keys())
-            sample = (random.choice(_keys) for _ in range(sample_size))
+            sample = random.sample(d.keys(), sample_size)
             super().__init__({k: d[k] for k in sample})
         if original_length is None:
             self.original_length = len(d)
         else:
             self.original_length = original_length
-
-
-def unique(seq):
-    """Return the unique elements of a collection even if those elements are
-       unhashable and unsortable, like dicts and sets"""
-    cleaned = []
-    for each in seq:
-        if each not in cleaned:
-            cleaned.append(each)
-    return cleaned
