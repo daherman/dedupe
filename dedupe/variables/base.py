@@ -1,3 +1,5 @@
+from typing import Callable, Sequence, Type, Any, Iterable
+
 from dedupe import predicates
 
 
@@ -16,23 +18,28 @@ class Variable(object):
 
     def __init__(self, definition):
 
-        if definition.get('has missing', False):
+        if definition.get("has missing", False):
             self.has_missing = True
             try:
-                exists_pred = predicates.ExistsPredicate(definition['field'])
+                exists_pred = predicates.ExistsPredicate(definition["field"])
                 self.predicates.append(exists_pred)
             except KeyError:
                 pass
         else:
             self.has_missing = False
 
+    def __getstate__(self):
+        odict = self.__dict__.copy()
+        odict["predicates"] = None
+
+        return odict
+
 
 class DerivedType(Variable):
     type = "Derived"
 
     def __init__(self, definition):
-        self.name = "(%s: %s)" % (str(definition['name']),
-                                  str(definition['type']))
+        self.name = "(%s: %s)" % (str(definition["name"]), str(definition["type"]))
         super(DerivedType, self).__init__(definition)
 
 
@@ -47,31 +54,32 @@ class MissingDataType(Variable):
 
 
 class FieldType(Variable):
-    _index_thresholds = []
-    _index_predicates = []
+    _index_thresholds: Sequence[float] = []
+    _index_predicates: Sequence[Type[predicates.IndexPredicate]] = []
+    _predicate_functions: Sequence[Callable[[Any], Iterable[str]]] = ()
     _Predicate = predicates.SimplePredicate
 
     def __init__(self, definition):
-        self.field = definition['field']
+        self.field = definition["field"]
 
-        if 'variable name' in definition:
-            self.name = definition['variable name']
+        if "variable name" in definition:
+            self.name = definition["variable name"]
         else:
             self.name = "(%s: %s)" % (self.field, self.type)
 
-        self.predicates = [self._Predicate(pred, self.field)
-                           for pred in self._predicate_functions]
+        self.predicates = [
+            self._Predicate(pred, self.field) for pred in self._predicate_functions
+        ]
 
-        self.predicates += indexPredicates(self._index_predicates,
-                                           self._index_thresholds,
-                                           self.field)
+        self.predicates += indexPredicates(
+            self._index_predicates, self._index_thresholds, self.field
+        )
 
         super(FieldType, self).__init__(definition)
 
 
 class CustomType(FieldType):
     type = "Custom"
-    _predicate_functions = []
 
     def __init__(self, definition):
         super(CustomType, self).__init__(definition)
@@ -79,14 +87,18 @@ class CustomType(FieldType):
         try:
             self.comparator = definition["comparator"]
         except KeyError:
-            raise KeyError("For 'Custom' field types you must define "
-                           "a 'comparator' function in the field "
-                           "definition. ")
+            raise KeyError(
+                "For 'Custom' field types you must define "
+                "a 'comparator' function in the field "
+                "definition. "
+            )
 
-        if 'variable name' not in definition:
-            self.name = "(%s: %s, %s)" % (self.field,
-                                          self.type,
-                                          self.comparator.__name__)
+        if "variable name" not in definition:
+            self.name = "(%s: %s, %s)" % (
+                self.field,
+                self.type,
+                self.comparator.__name__,
+            )
 
 
 def allSubclasses(cls):

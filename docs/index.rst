@@ -46,48 +46,27 @@ Contents
 
    API-documentation
    Variable-definition
-   OSX-Install-Notes
-   How-it-works
+   Examples
+   how-it-works/How-it-works
+   Troubleshooting
    Bibliography
 
 
 Features
 ========
- * **machine learning** - reads in human labeled data to automatically create optimum weights and blocking rules
- * **runs on a laptop** - makes intelligent comparisons so you don't need a powerful server to run it
- * **built as a library** - so it can be integrated in to your applications or import scripts
- * **extensible** - supports adding custom data types, string comparators and blocking rules
- * **open source** - anyone can use, modify or add to it
+
+* **machine learning** - reads in human labeled data to automatically create optimum weights and blocking rules
+* **runs on a laptop** - makes intelligent comparisons so you don't need a powerful server to run it
+* **built as a library** - so it can be integrated in to your applications or import scripts
+* **extensible** - supports adding custom data types, string comparators and blocking rules
+* **open source** - anyone can use, modify or add to it
 
 Installation
 ============
 
 .. code-block:: bash
 
-   pip install "numpy>=1.9"
    pip install dedupe
-
-Mac OS X Install Notes
-----------------------
-
-With default configurations, dedupe cannot do parallel processing on Mac OS X.
-:doc:`Read about instructions on how to enable this <OSX-Install-Notes>`.
-
-Using dedupe
-============
-
-Dedupe is a library and not a stand-alone command line tool. To
-demonstrate its usage, we have come up with a `few example recipes for
-different sized datasets for you
-<https://github.com/dedupeio/dedupe-examples/archive/0.5.zip>`__
-(`repo <https://github.com/dedupeio/dedupe-examples>`__, as well as
-annotated source code:
-
-* `Small data deduplication <http://dedupeio.github.io/dedupe-examples/docs/csv_example.html>`__
-* `Bigger data deduplication ~700K <http://dedupeio.github.io/dedupe-examples/docs/mysql_example.html>`__
-* `Record Linkage  <http://dedupeio.github.io/dedupe-examples/docs/record_linkage_example.html>`__
-* `Postgres <http://dedupeio.github.io/dedupe-examples/docs/pgsql_example.html>`__
-* `Patent Author Disambiguation <http://dedupeio.github.io/dedupe-examples/docs/patent_example.html>`__
 
 Errors / Bugs
 =============
@@ -117,6 +96,4 @@ Indices and tables
 ==================
 
 * :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
 

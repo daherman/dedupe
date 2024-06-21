@@ -1,5 +1,3 @@
-from __future__ import division
-
 from zope.index.text.lexicon import Lexicon
 from zope.index.text.textindex import TextIndex
 from zope.index.text.cosineindex import CosineIndex
@@ -29,7 +27,7 @@ class CanopyIndex(TextIndex):  # pragma: no cover
         for wid, docs in self.index._wordinfo.items():
             if len(docs) > threshold:
                 word = self.lexicon._words[wid]
-                logger.info('Removing stop word {}'.format(word))
+                logger.info("Removing stop word {}".format(word))
                 del self.index._wordinfo[wid]
                 continue
             if isinstance(docs, dict):

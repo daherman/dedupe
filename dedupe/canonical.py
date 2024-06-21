@@ -22,8 +22,7 @@ def getCentroid(attribute_variants, comparator):
     average_distance = distance_matrix.mean(0)
 
     # there can be ties for minimum, average distance string
-    min_dist_indices = numpy.where(
-        average_distance == average_distance.min())[0]
+    min_dist_indices = numpy.where(average_distance == average_distance.min())[0]
 
     if len(min_dist_indices) > 1:
         centroid = breakCentroidTie(attribute_variants, min_dist_indices)
@@ -61,11 +60,11 @@ def getCanonicalRep(record_cluster):
         for record in record_cluster:
             # assume non-empty values always better than empty value
             # for canonical record
-            if record[key]:
+            if record.get(key):
                 key_values.append(record[key])
         if key_values:
             canonical_rep[key] = getCentroid(key_values, comparator)
         else:
-            canonical_rep[key] = ''
+            canonical_rep[key] = ""
 
     return canonical_rep

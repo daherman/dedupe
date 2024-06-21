@@ -1,5 +1,6 @@
 # Dedupe Python Library
-[![Linux build](https://img.shields.io/travis/dedupeio/dedupe.svg?style=flat-square&label=Linux%20build)](https://travis-ci.org/dedupeio/dedupe)[![Mac OS X build](https://img.shields.io/travis/dedupeio/dedupe.svg?style=flat-square&label=Mac%20OS%20X%20build)](https://travis-ci.org/dedupeio/dedupe)[![Windows build](https://img.shields.io/appveyor/ci/fgregg/dedupe-n4qju/master.svg?style=flat-square&label=Windows%20build)](https://ci.appveyor.com/project/fgregg/dedupe-n4qju)[![Coverage](https://img.shields.io/coveralls/dedupeio/dedupe.svg?style=flat-square)](https://coveralls.io/r/dedupeio/dedupe?branch=master)
+
+[![Tests Passing](https://github.com/dedupeio/dedupe/workflows/tests/badge.svg)](https://github.com/dedupeio/dedupe/actions?query=workflow%3Atests)[![Coverage Status](https://coveralls.io/repos/github/dedupeio/dedupe/badge.svg)](https://coveralls.io/github/dedupeio/dedupe)
 
 _dedupe is a python library that uses machine learning to perform fuzzy matching, deduplication and entity resolution quickly on structured data._
 
@@ -18,6 +19,10 @@ dedupe takes in human training data and comes up with the best rules for your da
 * Mailing list: https://groups.google.com/forum/#!forum/open-source-deduplication
 * Examples: https://github.com/dedupeio/dedupe-examples
 
+## dedupe library consulting
+
+If you or your organization would like professional assistance in working with the dedupe library, Dedupe.io LLC offers consulting services. [Read more about pricing and available services here](https://dedupe.io/pricing/#consulting).
+
 ## Tools built with dedupe
 
 ### [Dedupe.io](https://dedupe.io/)
@@ -26,6 +31,9 @@ A cloud service powered by the dedupe library for de-duplicating and finding mat
 [Dedupe.io](https://dedupe.io/) also supports record linkage across data sources and continuous matching and training through an [API](https://apidocs.dedupe.io/en/latest/).
 
 For more, see the [Dedupe.io product site](https://dedupe.io/), [tutorials on how to use it](https://dedupe.io/tutorial/intro-to-dedupe-io.html), and [differences between it and the dedupe library](https://dedupe.io/documentation/should-i-use-dedupeio-or-the-dedupe-python-library.html).
+
+Dedupe is well adopted by the Python community. Check out this [blogpost](https://medium.com/district-data-labs/basics-of-entity-resolution-with-python-and-dedupe-bc87440b64d4),
+a YouTube video on how to use [Dedupe with Python](https://youtu.be/McsTWXeURhA) and a Youtube video on how to apply [Dedupe at scale using Spark](https://youtu.be/q9HPUYmiwjE?t=2704).
 
 
 ### [csvdedupe](https://github.com/dedupeio/csvdedupe)
@@ -38,7 +46,6 @@ Command line tool for de-duplicating and [linking](https://github.com/dedupeio/c
 If you only want to use dedupe, install it this way:
 
 ```bash
-pip install "numpy>=1.9"
 pip install dedupe
 ```
 
@@ -114,11 +121,11 @@ If something is not behaving intuitively, it is a bug, and should be reported.
 
 ## Copyright
 
-Copyright (c) 2019 Forest Gregg and Derek Eder. Released under the [MIT License](https://github.com/dedupeio/dedupe/blob/master/LICENSE).
+Copyright (c) 2022 Forest Gregg and Derek Eder. Released under the [MIT License](https://github.com/dedupeio/dedupe/blob/master/LICENSE).
 
 Third-party copyright in this distribution is noted where applicable.
 
 ## Citing Dedupe
 If you use Dedupe in an academic work, please give this citation:
 
-Forest Gregg and Derek Eder. 2019. Dedupe. https://github.com/dedupeio/dedupe.
+Forest Gregg and Derek Eder. 2022. Dedupe. https://github.com/dedupeio/dedupe.

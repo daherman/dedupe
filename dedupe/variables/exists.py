@@ -2,10 +2,12 @@ from .base import DerivedType
 from categorical import CategoricalComparator
 from .categorical_type import CategoricalType
 
+from typing import List, Callable
+
 
 class ExistsType(CategoricalType):
     type = "Exists"
-    _predicate_functions = []
+    _predicate_functions: List[Callable] = []
 
     def __init__(self, definition):
 
@@ -15,9 +17,9 @@ class ExistsType(CategoricalType):
 
         self.higher_vars = []
         for higher_var in self.cat_comparator.dummy_names:
-            dummy_var = DerivedType({'name': higher_var,
-                                     'type': 'Dummy',
-                                     'has missing': self.has_missing})
+            dummy_var = DerivedType(
+                {"name": higher_var, "type": "Dummy", "has missing": self.has_missing}
+            )
             self.higher_vars.append(dummy_var)
 
     def comparator(self, field_1, field_2):
@@ -30,4 +32,4 @@ class ExistsType(CategoricalType):
 
     # This flag tells fieldDistances in dedupe.core to pass
     # missing values (None) into the comparator
-    comparator.missing = True
+    comparator.missing = True  # type: ignore
